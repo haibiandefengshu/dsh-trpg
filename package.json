@@ -1,6 +1,6 @@
 {
   "name": "dsh-trpg",
-  "version": "0.13.0",
+  "version": "0.16.8",
   "description": "QQ 群 AI 跑团（CoC 7e）的 DSH 侧大脑：合批、确定性骰子、实时播报。需配合 Roost 插件 trpg-forwarder（两边共享令牌一致）",
   "type": "module",
   "main": "src/host.js",

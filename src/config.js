@@ -18,6 +18,11 @@ export const DEFAULTS = {
   defaultModule: 'mist-harbor',
   workspaceDir: '',
   roostAccessKey: '',
+  /**
+   * 指令提示文本（/help 或 /帮助 的内容）。
+   * 留空用内置那份；管理页可以改，改完立即生效。
+   */
+  helpText: '',
 };
 
 export function readConfig(raw) {
@@ -26,7 +31,8 @@ export function readConfig(raw) {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : d;
   };
-  const dataDir = join(homedir(), '.dsh', 'dsh-trpg');
+  /** 数据目录。允许由配置项覆盖 —— 主要是为了测试能整目录隔离 */
+  const dataDir = String(c.dataDir || '').trim() || join(homedir(), '.dsh', 'dsh-trpg');
   return {
     port: num(c.port, DEFAULTS.port),
     host: String(c.host || DEFAULTS.host),
@@ -39,8 +45,14 @@ export function readConfig(raw) {
     turnTimeoutMs: num(c.turnTimeoutMs, DEFAULTS.turnTimeoutMs),
     dbPath: String(c.dbPath || '').trim() || join(dataDir, 'trpg.sqlite'),
     dataDir,
-    defaultModule: String(c.defaultModule || DEFAULTS.defaultModule),
+    /**
+     * F2：以前只读 `defaultModule`，设置页那个 `moduleId` 下拉是装饰品 ——
+     * 改完不生效，只有手写 config.json 才有用。两个名字都收，moduleId 优先。
+     */
+    moduleId: String(c.moduleId || c.defaultModule || DEFAULTS.defaultModule),
+    defaultModule: String(c.moduleId || c.defaultModule || DEFAULTS.defaultModule),
     workspaceDir: String(c.workspaceDir || '').trim() || join(dataDir, 'workspace'),
     roostAccessKey: String(c.roostAccessKey || ''),
+    helpText: String(c.helpText || ''),
   };
 }

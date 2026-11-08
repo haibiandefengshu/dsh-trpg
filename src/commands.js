@@ -52,12 +52,91 @@ export function parseSheet(input) {
 
 const defaultStats = () => ({ hp: 10, maxHp: 10, mp: 10, maxMp: 10, san: 50, maxSan: 50, luck: 50, dex: 50, int: 50 });
 
+/**
+ * 默认指令提示。管理页「指令提示」清空时用它。
+ * 中文写法在前、英文在后 —— 群里先学会中文那列就够用了。
+ */
+export const DEFAULT_HELP = [
+  '跑团指令（/ 或 . 开头都行；中英文都可以）',
+  '',
+  '【开局】',
+  '  /开始 · /继续 或 /trpg start　　　　开一场 / 接着上次',
+  '  /暂停 或 /trpg pause　　　　　　　 暂停',
+  '  /结束 或 /trpg end　　　　　　　　 结团',
+  '  /重开 /trpg restart　　　　　　　　重开本模组',
+  '  /模组 或 /trpg module <id>　　　　 换模组',
+  '  /状态 或 /trpg status　　　　　　　看当前进度',
+  '',
+  '【角色卡】',
+  '  /录卡 亚瑟 hp12 san65 侦查70　　　 录入（/建卡 新建一张）',
+  '  /角色卡 或 /pc　　　　　　　　　　 看自己的卡',
+  '  /角色卡 P2 或 /pc use P2　　　　　 切换角色',
+  '  /解绑 或 /pc release　　　　　　　 解除绑定',
+  '',
+  '【检定】',
+  '  /检定 侦查　　　　　　　　　　　　 技能检定',
+  '  /检定 侦查 困难 / 奖励1 / 惩罚1　　带难度或奖惩骰',
+  '  /理智 0/1d6　　　　　　　　　　　　理智检定',
+  '  /骰 3d6 · /骰 1d100+5 · /骰 4d6k3　自由掷骰',
+  '  /幸运　　　　　　　　　　　　　　　花幸运改判',
+  '',
+  '【其他】',
+  '  /战术 /暂离 /撤销 /记录 /房规 /帮助',
+].join('\n');
+
+/**
+ * 中文命令别名。
+ *
+ * 群里聊天用中文，命令却是 /trpg start、/ra、/sc 这种缩写，新玩家记不住。
+ * 这里把常用动作映射到规范命令，**英文写法全部保留**（老习惯不用改）。
+ * 映射值写成 `[规范命令, 附带子命令]`，`/开始` 等价于 `/trpg start`。
+ */
+const CN_ALIASES = new Map([
+  ['/开始', ['/trpg', 'start']],
+  ['/开局', ['/trpg', 'start']],
+  ['/继续', ['/trpg', 'start']],
+  ['/暂停', ['/trpg', 'pause']],
+  ['/结束', ['/trpg', 'end']],
+  ['/结团', ['/trpg', 'end']],
+  ['/重开', ['/trpg', 'restart']],
+  ['/重置', ['/trpg', 'reset']],
+  ['/模组', ['/trpg', 'module']],
+  ['/状态', ['/trpg', 'status']],
+  ['/团', ['/trpg', 'status']],
+  ['/录卡', ['/st', null]],
+  ['/建卡', ['/st', 'new']],
+  ['/角色卡', ['/pc', null]],
+  ['/卡', ['/pc', null]],
+  ['/切换角色', ['/pc', 'use']],
+  ['/解绑', ['/pc', 'release']],
+  ['/检定', ['/ra', null]],
+  ['/骰', ['/r', null]],
+  ['/掷骰', ['/r', null]],
+  ['/理智', ['/sc', null]],
+  ['/疯狂', ['/sc', null]],
+  ['/幸运', ['/luck', null]],
+  ['/房规', ['/setcoc', null]],
+  ['/撤销', ['/undo', null]],
+  ['/记录', ['/note', null]],
+  ['/战术', ['/tactic', null]],
+  ['/暂离', ['/afk', null]],
+  ['/帮助', ['/help', null]],
+  ['/指令', ['/help', null]],
+]);
+
 export function handleCommand({ text: rawText, evt, db, cfg }) {
   const gk = evt.groupKey;
   // 命令前缀 / 和 . 都认（. 是 trpg-dice 插件的习惯，群里更顺手）
   const text = /^[.]/.test(String(rawText || '')) ? '/' + String(rawText).slice(1) : String(rawText || '');
-  const arg = text.replace(/^[^\s]+\s*/, '').trim();
-  const cmd = String(text.trim().split(/\s+/)[0] || '').toLowerCase();
+  let arg = text.replace(/^[^\s]+\s*/, '').trim();
+  let cmd = String(text.trim().split(/\s+/)[0] || '').toLowerCase();
+
+  // 中文别名 → 规范命令（英文写法原样透传）
+  const cn = CN_ALIASES.get(cmd);
+  if (cn) {
+    cmd = cn[0];
+    if (cn[1]) arg = (cn[1] + (arg ? ' ' + arg : '')).trim();
+  }
   const session = getSession(db, gk);
   const requireRunning = () => {
     if (!session) return '本群还没有跑团记录。管理员发 /trpg start 开局。';
@@ -146,6 +225,25 @@ export function handleCommand({ text: rawText, evt, db, cfg }) {
       if (!session) return { handled: true, reply: '本群还没有跑团记录。' };
       updateSession(db, gk, { status: 'idle', combat: { active: false }, pendingChecks: {} });
       return { handled: true, reply: '已结束本团。群里的话不再交给守密人，普通聊天恢复正常。想再开：/trpg start' };
+    }
+
+    /**
+     * 诊断：工具清单。
+     * 这段以前写在 /trpg 分支**外面**，靠 `act` 判断 —— 那个变量出了块就不存在，
+     * 于是永远走不到（前面分支已经 return），真跑起来还会 ReferenceError。
+     */
+    if (act === 'tools') {
+      const names = ['trpg_roll_check', 'trpg_resolve_followup', 'trpg_san_check', 'trpg_mutate_state', 'trpg_scene_action', 'trpg_combat_tracker'];
+      return {
+        handled: true,
+        reply: [
+          `跑团工具 ${names.length} 个：`,
+          ...names.map((n) => `· ${n}`),
+          '',
+          '注册结果看 ~/.dsh/dsh-trpg/plugin.log 里的「挂工具 …」行（每回合刷新一条）。',
+          '若显示「成功 5/6」，看失败那行的具体原因；「0/6」说明工具没挂上，AI 只会纯叙事。',
+        ].join('\n'),
+      };
     }
 
     if (act === 'reset' || act === 'rebuild') {
@@ -361,19 +459,15 @@ export function handleCommand({ text: rawText, evt, db, cfg }) {
 
   /** /help —— 一屏命令表 */
   if (cmd === '/help' || cmd === '/?') {
+    /**
+     * 提示文本优先读配置（管理页可编辑）。
+     * 没有就用内置那份 —— 用户不折腾也能开团。
+     */
+    const custom = String(cfg?.helpText || '').trim();
     return {
       handled: true,
-      reply: [
-        '跑团命令（/ 或 . 开头都行）：',
-        '/trpg start｜pause｜end｜restart｜module <id>　开局·继续 / 暂停 / 结团 / 重开 / 换模组',
-        '/st 亚瑟 hp12 san65 侦查70　　　录卡（/st new 再建一张）',
-        '/pc｜/pc use P2｜/pc release　　看卡 / 切换 / 解绑',
-        '/r 3d6、/r 1d100+5、/r 4d6k3　掷骰',
-        '/ra 侦查 [困难|奖励1|惩罚1]　　技能检定',
-        '/sc 0/1d6 [P1]　　　　　　　　理智检定',
-        '/luck　　　　　　　　　　　　花幸运改判',
-        '/status｜/tactic｜/afk｜/undo｜/note',
-      ].join('\n'),
+      tokens: 0,
+      reply: custom || DEFAULT_HELP,
     };
   }
 
@@ -388,21 +482,6 @@ export function handleCommand({ text: rawText, evt, db, cfg }) {
     return { handled: true, reply: `本群房规已设为 ${code}。` };
   }
 
-  /** /trpg tools —— 诊断：跑团工具清单与最近一次注册结果 */
-  if (cmd === '/trpg' && act === 'tools') {
-    const names = ['trpg_roll_check', 'trpg_resolve_followup', 'trpg_san_check', 'trpg_mutate_state', 'trpg_scene_action', 'trpg_combat_tracker'];
-    return {
-      handled: true,
-      reply: [
-        `跑团工具 ${names.length} 个：`,
-        ...names.map((n) => `· ${n}`),
-        '',
-        '注册结果看 ~/.dsh/dsh-trpg/plugin.log 里的「挂工具 …」行（每回合刷新一条）。',
-        '若显示「成功 0/6」，说明工具没挂上，AI 只能纯叙事、不会掷骰。',
-      ].join('\n'),
-    };
-  }
-
   if (cmd === '/ra') {
     const [skillName, diff] = arg.split(/\s+/);
     if (!skillName) return { handled: true, reply: '用法：/ra 侦查 或 /ra 图书馆 困难' };
@@ -413,7 +492,8 @@ export function handleCommand({ text: rawText, evt, db, cfg }) {
     const difficulty = ['hard', 'extreme'].includes(diff) ? diff : 'regular';
     const threshold = R.thresholdOf(sv.value, difficulty);
     const roll = R.rollWithBonus(bonus).roll;
-    const level = R.successLevel(roll, threshold);
+    // F4：不传 houseRule 时用的是默认值，本群 /setcoc 对 /ra 无效（只有 AI 工具认房规）
+    const level = R.successLevel(roll, threshold, Number(session?.houseRule ?? R.DEFAULT_HOUSE_RULE));
     return { handled: true, reply: `[${inv?.slot || '未录卡'}] ${inv?.charName || evt.nickname || '你'} 的【${sv.name}】：D100 = ${roll} / ${threshold}（${R.DIFFICULTY_CN[difficulty]}${bonus ? `，${bonus > 0 ? '奖励' : '惩罚'}${Math.abs(bonus)}` : ''}）→ ${R.LEVEL_CN[level]}` };
   }
 

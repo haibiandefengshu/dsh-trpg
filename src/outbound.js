@@ -84,7 +84,7 @@ export function createOutbound({ cfg, log = () => {} }) {
    * @ 人同理：qqbot-at-user 标签只在 markdown 消息里渲染，纯文本会露出标签，
    * 所以先不 @，等 markdown 权限确认后再打开。
    */
-  async function send({ groupId, replyMsgId, content, requestId = '' }) {
+  async function send({ groupId, replyMsgId, content, requestId = '', direct = false }) {
     const markdown = false;
     const atOpenid = '';
     if (!turn) turn = { pool: replyMsgId ? [replyMsgId] : [], idx: 0, budget: cfg.turnBudget, seq: 0 };
@@ -98,7 +98,7 @@ export function createOutbound({ cfg, log = () => {} }) {
 
     let msgId = replyMsgId || nextMsgId();
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const r = await post({ requestId: rid, groupId, replyMsgId: msgId, content, markdown, atOpenid, type: 'text' });
+      const r = await post({ requestId: rid, groupId, replyMsgId: msgId, content, markdown, atOpenid, type: 'text', direct });
       if (r.ok) {
         markUsed(msgId);
         sent.set(rid, Date.now());
@@ -122,10 +122,10 @@ export function createOutbound({ cfg, log = () => {} }) {
   /**
    * 播报卡：进 300ms 排序器，按调用顺序发（模型并行调工具时不会乱序）。
    */
-  function broadcast(content, { groupId, atOpenid = '', markdown = false } = {}) {
+  function broadcast(content, { groupId, atOpenid = '', markdown = false, direct = false } = {}) {
     if (!turn) return;
     turn.seq += 1;
-    queue.push({ seq: turn.seq, content, groupId, atOpenid, markdown });
+    queue.push({ seq: turn.seq, content, groupId, atOpenid, markdown, direct });
     if (timer) return;
     timer = setTimeout(() => {
       timer = null;
@@ -133,7 +133,7 @@ export function createOutbound({ cfg, log = () => {} }) {
       queue = [];
       (async () => {
         for (const item of batch) {
-          await send({ groupId: item.groupId || '', content: item.content, markdown: item.markdown, atOpenid: item.atOpenid });
+          await send({ groupId: item.groupId || '', content: item.content, markdown: item.markdown, atOpenid: item.atOpenid, direct: Boolean(item.direct) });
         }
       })().catch(() => {});
     }, 300);

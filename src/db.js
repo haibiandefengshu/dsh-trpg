@@ -339,6 +339,27 @@ export function restoreSnapshot(db, gk, turnId) {
   return snap;
 }
 
+/**
+ * 彻底删掉一个群的跑团记录。
+ *
+ * trpg_scenes 不按群存（属于模组定义，多群共用一份），所以不动它 ——
+ * 删了会把别人的进度一起抹掉。
+ */
+export function purgeCampaign(db, gk) {
+  return tx(db, () => {
+    const before = {
+      investigators: db.prepare('SELECT COUNT(*) AS n FROM trpg_investigators WHERE group_key = ?').get(gk)?.n ?? 0,
+      snapshots: db.prepare('SELECT COUNT(*) AS n FROM trpg_snapshots WHERE group_key = ?').get(gk)?.n ?? 0,
+      facts: db.prepare('SELECT COUNT(*) AS n FROM trpg_campaign_memory WHERE group_key = ?').get(gk)?.n ?? 0,
+    };
+    db.prepare('DELETE FROM trpg_investigators WHERE group_key = ?').run(gk);
+    db.prepare('DELETE FROM trpg_snapshots WHERE group_key = ?').run(gk);
+    db.prepare('DELETE FROM trpg_campaign_memory WHERE group_key = ?').run(gk);
+    db.prepare('DELETE FROM trpg_sessions WHERE group_key = ?').run(gk);
+    return before;
+  });
+}
+
 export function deleteSnapshot(db, gk, turnId) {
   db.prepare('DELETE FROM trpg_snapshots WHERE group_key = ? AND turn_id = ?').run(gk, turnId);
 }

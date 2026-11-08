@@ -55,6 +55,14 @@ window.__ModuleLoader__.load({
       const [moduleId, setModuleId] = useState('');
       const [workspaceDir, setWorkspaceDir] = useState('');
       const [saved, setSaved] = useState('');
+      /**
+       * 模组列表走公开的 /trpg/modules（只有 id/标题/幕数），
+       * 不再依赖 /trpg/panel —— 那个端点令牌不对就 403，下拉框会永远是空的。
+       */
+      const [modules, setModules] = useState([
+        { id: 'mist-harbor', title: '雾港旧宅', scenes: 6 },
+        { id: 'midnight-express', title: '午夜列车', scenes: 4 },
+      ]);
       const [modJson, setModJson] = useState('');
       const [importMsg, setImportMsg] = useState('');
 
@@ -83,11 +91,21 @@ window.__ModuleLoader__.load({
         }
       }, [token]);
 
+      const loadModules = useCallback(async function () {
+        try {
+          const res = await fetch(ENDPOINT + '/trpg/modules');
+          if (!res.ok) return;
+          const j = await res.json();
+          if (j && Array.isArray(j.modules) && j.modules.length) setModules(j.modules);
+        } catch (e) { /* 拿不到就继续用内置清单 */ }
+      }, []);
+
       useEffect(function () {
+        loadModules();
         load();
         const t = setInterval(load, 5000);
         return function () { clearInterval(t); };
-      }, [load]);
+      }, [load, loadModules]);
 
       const setDefaultCard = async function (groupKey, slot) {
         try {
@@ -133,17 +151,42 @@ window.__ModuleLoader__.load({
           if (j.ok) {
             try { window.localStorage.setItem('dsh-trpg/token', token); } catch (e) { /* 隐私模式就算了 */ }
           }
-          setSaved(j.ok ? '已保存（令牌立即生效；模组下次 /trpg start 生效；工作区对新建会话生效）' : '保存失败：' + (j.error || ''));
+          /**
+           * 令牌同步结果如实说 —— 同步失败时不提示的话，
+           * 用户以为改好了，群里却照旧没反应（最难查的一种状态）。
+           */
+          if (!j.ok) {
+            setSaved('保存失败：' + (j.error || ''));
+          } else if (j.tokenChanged && j.forwarder && !j.forwarder.ok) {
+            const f = j.forwarder;
+            const why = f.step === 'network'
+              ? '连不上 Roost（' + f.base + '）'
+              : f.step === 'config'
+                ? 'Roost 拒绝了写入（HTTP ' + f.status + '）'
+                : 'Roost 重载失败（HTTP ' + f.status + '）';
+            setSaved('令牌已存到 DSH 侧，但没能同步给 Roost：' + why + '。请到 Roost 面板手动改成同一个值。');
+          } else if (j.tokenChanged) {
+            setSaved('已保存：令牌已更新，并已同步给 Roost 侧的转发器');
+          } else {
+            setSaved('已保存（模组下次 /trpg start 生效；工作区对新建会话生效）');
+          }
           load();
         } catch (e) {
           setSaved('保存失败：' + String((e && e.message) || e));
         }
       };
 
-      if (err) return h('div', { style: box }, h('div', { style: { color: '#c0392b' } }, err));
+      /**
+       * 错误只占一行，不阻塞下面的控件。
+       * 以前是 `if (err) return ...`：令牌一不对整个面板就被红字替换，
+       * 连「共享令牌」输入框一起没了 —— 看得见提示、却没地方能改。
+       */
+      const errLine = err
+        ? h('div', { style: { color: '#c0392b', fontSize: 12, marginTop: 6 } }, err)
+        : null;
 
       const campaigns = (data && data.campaigns) || [];
-      const modules = (data && data.modules) || [];
+
       const statusText = data
         ? '构建 ' + data.build + '｜运行 ' + Math.round((data.uptimeMs || 0) / 1000) + 's｜进行中 ' + data.busy
         : '加载中…';
@@ -152,13 +195,26 @@ window.__ModuleLoader__.load({
         h('strong', null, '跑团面板'),
         h('span', { style: { color: '#888', fontSize: 12 } }, statusText));
 
-      const tokenRow = h('div', { style: row },
-        h('span', { style: labelStyle }, '共享令牌'),
+      /**
+       * 共享令牌单独成块：它是最常改、也最容易填错的一项，
+       * 不该和模组/工作区混在同一列里。用可见文本框，核对不用猜。
+       */
+      const tokenRow = h('div', {
+        style: {
+          marginTop: 10, padding: '10px 12px', borderRadius: 8,
+          border: '1px solid var(--dsh-border, #ddd)',
+        },
+      },
+        h('div', { style: Object.assign({}, labelStyle, { marginBottom: 4, fontWeight: 600 }) }, '共享令牌'),
         h('input', {
-          style: inputStyle, value: token, type: 'password',
+          style: inputStyle, value: token, type: 'text',
           onChange: function (e) { setToken(e.target.value); },
-          placeholder: '与 Roost 的 trpg-forwarder 一致（只存本地浏览器）',
-        }));
+          placeholder: '与 Roost 面板里「跑团转发器」的共享令牌一致',
+          autocomplete: 'off',
+        }),
+        h('div', { style: { color: '#888', fontSize: 11, marginTop: 3 } },
+          '填一次会记在浏览器里；两边不一致时，群里发指令不会有任何反应。' +
+          (data && data.config && data.config.tokenConfigured === false ? '（宿主当前还没配令牌）' : '')));
 
       const moduleRow = h('div', { style: row },
         h('span', { style: labelStyle }, '模组'),
@@ -199,20 +255,85 @@ window.__ModuleLoader__.load({
           h('button', { onClick: importModule, style: { padding: '5px 14px', borderRadius: 6, cursor: 'pointer' } }, '导入模组'),
           importMsg ? h('span', { style: { color: '#2b7a4b', fontSize: 12 } }, importMsg) : null));
 
+      const ADMIN_URL = 'http://127.0.0.1:17322/trpg/admin';
+
+      const openAdmin = function () {
+        try {
+          const w = window.open(ADMIN_URL, '_blank', 'noopener,noreferrer');
+          if (!w) setSaved('浏览器拦了新窗口，请手动复制下面的地址打开。');
+        } catch (e) {
+          setSaved('浏览器拦了新窗口，请手动复制下面的地址打开。');
+        }
+      };
+
+      const adminHint = h('div', {
+        style: { marginTop: 12, paddingTop: 10, borderTop: '1px dashed #ddd' },
+      },
+        h('div', { style: row },
+          h('button', { onClick: openAdmin, style: { padding: '5px 14px', borderRadius: 6, cursor: 'pointer' } }, '在浏览器中打开管理页')),
+        h('div', { style: { color: '#888', fontSize: 11, marginTop: 6 } },
+          '面板加载不出来（或令牌改不动）时用这个：',
+          h('code', { style: { userSelect: 'all' } }, ADMIN_URL)));
+
       const list = h('div', { style: { marginTop: 14 } },
         h('strong', null, '进行中的团'),
         campaigns.length === 0
           ? h('div', { style: { color: '#888' } }, '还没有团。在群里发 /trpg start 开一场。')
           : campaigns.map(function (c) { return h(CampaignLine, { key: c.groupKey, campaign: c, onSetDefault: setDefaultCard }); }));
 
-      return h('div', { style: box }, head, tokenRow, moduleRow, wsRow, actions, importBox, list);
+      return h('div', { style: box }, head, errLine, tokenRow, moduleRow, wsRow, actions, importBox, adminHint, list);
+    }
+
+    const PANEL_ID = 'dsh-trpg';
+
+    /**
+     * 侧边栏图标。
+     *
+     * 框架只把 `size` 传进来 —— 图标是**纯装饰**，点击和选中态由侧边栏自己管，
+     * 它按 `id` 去 `main` 槽里找同 key 的面板打开。所以这里不需要任何事件处理。
+     * 画一个骰子（20 面体的意思）：圆 + 中间的点。
+     */
+    function SidebarIcon(props) {
+      const size = (props && props.size) || 20;
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+      },
+        h('path', { d: 'M12 2.8 20 7v10l-8 4.2L4 17V7z' }),
+        h('path', { d: 'M12 8.2 15.4 10v4.2L12 16l-3.4-1.8V10z' }),
+      );
+    }
+
+    /** 侧边栏打开的整页面板：给个能滚动的容器，别让内容顶到边 */
+    function PanelPage(props) {
+      return h('div', {
+        style: {
+          height: '100%', overflowY: 'auto', boxSizing: 'border-box',
+          padding: '18px 22px', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.6,
+        },
+      }, h(Panel, props));
     }
 
     return {
       inject: ['slots'],
       apply(ctx) {
+        // 原来的位置：插件详情页里的配置块，保留
         ctx.slots.inject('plugins.bundle.config', function () {
-          return ctx.slots.register({ name: 'plugins.bundle.config', key: 'dsh-trpg' }, Panel);
+          return ctx.slots.register({ name: 'plugins.bundle.config', key: PANEL_ID }, Panel);
+        });
+
+        // 侧边栏入口：id 与下面的 main.key 一致，点图标就打开跑团面板
+        ctx.slots.inject('sidebar.panellist', function () {
+          return ctx.slots.register({
+            name: 'sidebar.panellist',
+            id: PANEL_ID,
+            order: 20,
+            label: function () { return '跑团面板'; },
+          }, SidebarIcon);
+        });
+
+        ctx.slots.inject('main', function () {
+          return ctx.slots.register({ name: 'main', key: PANEL_ID }, PanelPage);
         });
       },
     };

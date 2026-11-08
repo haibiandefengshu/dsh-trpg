@@ -192,3 +192,282 @@ Roost 面板的所有 `/api/*` 都在鉴权之后（`webui.accessKey` 非空才�
 
 不填的表现是 `401 {"error":"访问密钥无效"}` —— 这**不是**共享令牌写错（那会返回 `bad_token`），
 两者要分开看。
+
+## 管理页（0.14）
+
+`http://127.0.0.1:17322/trpg/admin`（`/` 同）—— 宿主直接渲染的 HTML，不依赖 DSH 前端。
+
+页面分两部分：
+
+**上半：「设置」折叠块**（默认收起，点标题展开；summary 上带令牌状态与当前模组）
+
+| 项 | 说明 |
+|---|---|
+| 共享令牌 | 改完立即生效，并自动同步给 Roost 侧的 trpg-forwarder |
+| 默认模组 | 下拉选择；右侧「导入模组」可上传 `.json` |
+| 工作区目录 | 留空用 `~/.dsh/dsh-trpg/workspace`，对新建会话生效 |
+
+**下半：跑团数据**（只读，**每个团默认折叠，防止剧透**）
+
+- 收起状态只显示：群名、状态徽标、openid、模组名、回合数、调查员人数
+- 展开后才显示：场景描述、角色数值、剧情进度、战役记忆、删除按钮
+- 调查员：槽位、角色名、绑定玩家、HP/MP/SAN/幸运 进度条、移动/体格/伤害加值、
+  状态标签、核心技能、持有物品
+- 剧情进度：场景线索逐条列出，已解锁打 ✔，未解锁带「剧透」角标
+- 战役记忆：`/note` 记下的条目，按重要性标星
+
+模组清单另有公开端点 `GET /trpg/modules`（只含 id / 标题 / 幕数），
+面板的下拉框走它，这样令牌不对时也不会是空的。
+
+`/trpg/panel/config` 的自证规则：当前没配令牌 → 允许设置；
+带了正确的当前令牌 → 允许；带的令牌等于要写入的新值 → 允许（本人主动重设）。
+
+## 中文指令（0.15.0）
+
+英文写法**全部保留**，中文只是别名，两种都能用。
+
+| 中文 | 等价 |
+|---|---|
+| `/开始` `/开局` `/继续` | `/trpg start` |
+| `/暂停` | `/trpg pause` |
+| `/结束` `/结团` | `/trpg end` |
+| `/重开` | `/trpg restart` |
+| `/重置` | `/trpg reset` |
+| `/模组 <id>` | `/trpg module <id>` |
+| `/状态` `/团` | `/trpg status` |
+| `/录卡 亚瑟 hp12 san65 侦查70` | `/st ...` |
+| `/建卡` | `/st new` |
+| `/角色卡` `/卡` | `/pc` |
+| `/切换角色 P2` | `/pc use P2` |
+| `/解绑` | `/pc release` |
+| `/检定 侦查 [困难｜奖励1｜惩罚1]` | `/ra ...` |
+| `/骰 3d6` | `/r 3d6` |
+| `/理智 0/1d6` | `/sc ...` |
+| `/幸运` | `/luck` |
+| `/房规` | `/setcoc` |
+| `/撤销` `/记录` `/战术` `/暂离` | `/undo` `/note` `/tactic` `/afk` |
+| `/帮助` `/指令` | `/help` |
+
+## 管理页的「指令」折叠块
+
+设置下面还有一块「指令」，默认收起，列出全部命令（中文在前、英文在后，按 开局/角色卡/检定/其他 分组）。
+
+- 条数显示在标题上（共 22 条）
+- 这份表在 `impl.js` 的 `COMMAND_TABLE` 里，**改 `commands.js` 的 CN_ALIASES 时要同步**
+- 表格只是展示，实际解析仍以 `commands.js` 为准
+
+## 指令提示可配置
+
+管理页「设置」里有「指令提示」编辑框：
+
+- 填什么，群里 `/帮助` 就回什么
+- 留空 = 用内置那套（`DEFAULT_HELP`，中英对照）
+- 保存立即生效，下一句 `/帮助` 就能看到，不用重启
+
+写入 `~/.dsh/dsh-trpg/config.json` 的 `helpText` 字段。
+
+## 侧边栏入口（0.16.0）
+
+插件加载后在 DSH 左上角侧边栏多一个**跑团面板**图标，点它就打开整页的跑团面板。
+
+注册两个槽位，靠 id / key 对上：
+
+| 槽位 | 注册 | 作用 |
+|---|---|---|
+| `sidebar.panellist` | `{ id: "dsh-trpg", order: 20, label: () => "跑团面板" }` | 侧边栏那行图标 |
+| `main` | `{ key: "dsh-trpg" }` | 点开后中间区域整页渲染 |
+
+图标组件只接收 `{ size }` —— 它**纯装饰**，点击和选中态由侧边栏自己处理
+（它按 `id` 去 `main` 找同 key 的面板）。所以图标里不该写 onClick。
+
+插件详情页里那块配置面板（`plugins.bundle.config`）保留，两处渲染同一个组件。
+
+## 删除跑团记录
+
+管理页每个团的标题行右侧有「删除」按钮：
+
+- 二次确认，文案写明会连角色卡、回合快照、战役记忆一起删，且不可恢复
+- 模组文件（`modules/*.json`）不受影响
+- 端点 `POST /trpg/panel/delete`，需要共享令牌
+- 返回删了多少：`{ investigators, snapshots, facts }`
+
+**注意**：`trpg_scenes` 不删 —— 它存的是模组定义，多个群共用一份，删了会把别人的进度一起抹掉。
+
+## 关于内联脚本（踩过的坑）
+
+管理页的 `<script>` 是写在模板字符串里生成的。**模板字符串里的 `\n` 会变成真实换行**，
+于是 `confirm('第一行\n\n第二行')` 落进 HTML 就成了跨行的单引号字符串 ——
+整个 `<script>` 语法错误，页面上**所有**交互（保存 / 刷新 / 导入 / 删除）一起失效，
+而控制台只有一行 SyntaxError，很难联想到是文案里的换行。
+
+现在的写法：
+
+```js
+const NL = String.fromCharCode(10);
+const tip = ['第一行', '', '第二行'].join(NL);
+```
+
+`test/admin-script.test.mjs` 会用 `new Function(script)` 真正解析这段内联脚本，
+并检查有没有引号未闭合的行 —— 这类错误不会再溜过去。
+
+## 0.16.2 修的几处（均为 bug 修复，无功能变更）
+
+| 项 | 问题 | 修法 |
+|---|---|---|
+| F1 | outbound 是全局单例，两群并发跑团互相清 turn，骰子静默消失 | `Map<groupKey, outbound>`，每群一份 turn 与预算；超过 200 个实例时清最早的 |
+| F2 | `readConfig` 不读 `moduleId`，设置页那个下拉是装饰品 | 两个名字都收，`moduleId` 优先 |
+| F5 | `roostSendUrl` 只能改 bundle 配置 | `/trpg/panel/config` 接受该字段（校验 http/https），写进 config.json |
+| F9 | `trpg_combat_tracker` 的 `enemies.items` 缺 `additionalProperties`，工具 5/6 | `deepFixSchema()` 递归补齐每个 object 节点 |
+| F3 | `/trpg tools` 写在 `/trpg` 分支外，`act` 未定义 —— 不可达死代码 | 移进分支内，`/trpg tools` 现在真能用 |
+| F4 | `/ra` 不传 houseRule，`/setcoc` 对本群检定无效 | 传 `session.houseRule`（缺省 `DEFAULT_HOUSE_RULE`） |
+| F6 | `src/entry.js` 与 `src/host.js` 逐字节相同 | 删除 `entry.js` |
+| F7 | 热重载只增不减 | `dispose` 里关 server / 停 batcher 与 turnRunner / 清 outbounds / 关 SQLite。ESM 缓存本身回收不了，但实例持有的资源能放掉 |
+
+关于 F5 的一点实测记录：`17321` 端口上跑的是 **DeepSeek Harness 自己**（`Get-Process -Id 9888` → `DeepSeek Harness.exe`），
+它的 `/api/plugins/...` 一律 404。Roost 的面板在 8080，`trpg-forwarder` 的路由挂在面板下，
+所以默认值仍是 8080 —— 但现在端口可以改了。
+
+## 0.16.4：令牌同步可观测化
+
+改令牌时会顺带把新值推给 Roost 的 `trpg-forwarder` 并重载它 —— 否则转发器拿旧令牌投递，
+群里没反应而日志只有 403，很难联想到是两边不一致。
+
+| 以前 | 现在 |
+|---|---|
+| base 写死 `http://127.0.0.1:8080` | 从 `cfg.roostSendUrl` 推导 origin，端口改了跟着走 |
+| 不带 `x-access-key` | 设了就带 |
+| 「发出去就不管」 | 返回 `forwarder: { ok, base, step, status, message }` |
+
+`step` 三档：`config`（写配置被拒）/ `reload`（重载失败）/ `network`（连不上）。
+管理页和插件面板都按结果显示 —— 成功说打到哪，失败说清哪一步、地址是多少。
+
+实测：
+
+```
+✔ 成功：PATCH + reload 都到达，带 x-access-key，base 正确
+✔ Roost 401：step=config, status=401
+✔ Roost 没在跑：step=network，但 DSH 侧仍保存成功、新令牌已生效
+```
+
+注意方向：**只能 DSH → Roost 推**。Roost 没有 `GET config` 路由，
+从 Roost 面板改的令牌不会反向流回 DSH，那种情况两边都要填一遍。
+
+（这一步只加同步可观测化，**不包含** Host / Origin 校验 —— 那个仍在 0.16.3 之前的状态。）
+
+## 0.16.5：同步 404 的真实原因（桥没这个路由）
+
+DSH 侧一直在调 `PATCH /api/plugins/trpg-forwarder/config`，
+但 `trpg-forwarder` **只注册了 `POST /send`** —— 于是永远 404「接口不存在」。
+这不是端口问题、也不是台账问题，是对方压根没有这个入口。
+
+桥（0.6.3）补了两个路由：
+
+| 路由 | 作用 | 鉴权 |
+|---|---|---|
+| `PATCH /config` | 写入 `token` | body 里的 `from` 必须等于当前令牌（首次配置时免） |
+| `POST /reload` | 空操作，回 ok | 无 |
+
+`/reload` 只是为了让 DSH 那条调用链完整 —— 转发器的配置是每次 `conf()` 现读的，本来就不需要重载。
+
+DSH 侧同步时会带 `from: <旧令牌>` 自证：
+
+```js
+fetch(base + '/api/plugins/trpg-forwarder/config', {
+  method: 'PATCH',
+  body: JSON.stringify({ token: 新值, from: 旧值 }),
+})
+```
+
+这样任意本地进程没法随便改转发器的令牌，而 DSH 手里正好有旧值。
+
+### 「一改令牌就连不上」
+
+服务端行为实测是对的：改完新令牌可读、旧令牌立刻 403、config.json 已更新。
+真正让群里断掉的是**两边不一致** —— DSH 侧改成功了，Roost 侧因为 404 没改，
+转发器拿着旧令牌投递，群里自然没反应。同步路由补上之后这个问题就没有了。
+
+## 0.16.6：真正的 404 根因 —— 少了 `/r`
+
+Roost 的插件路由地址是 **`/api/plugins/<id>/r<路径>`**，那个 `r` 是框架的固定前缀：
+
+```js
+ctx.registerRoute('PATCH', '/config', handler)
+// → 实际挂在 /api/plugins/trpg-forwarder/r/config
+```
+
+DSH 侧写的是 `/api/plugins/trpg-forwarder/config`（少了 r），所以永远 404 `{"error":"接口不存在"}`。
+`/send` 之所以一直正常，是因为 `roostSendUrl` 里本来就有 `/r/`。
+
+实测对比（Roost 在跑时）：
+
+```
+PATCH /api/plugins/trpg-forwarder/r/config   → 403（路由存在，from 不对）
+PATCH /api/plugins/trpg-forwarder/config     → 404（路径根本不存在）
+```
+
+修完之后带真实令牌打通：
+
+```
+PATCH /r/config  {"token":"<当前>","from":"<当前>"}  → 200 {"ok":true,"tokenConfigured":true}
+POST  /r/reload                                        → 200 {"ok":true,"reloaded":false}
+```
+
+`test/sync-path.test.mjs` 用假 Roost 锁死这条路径：少一个 `/r` 测试就会红。
+
+## 0.16.7：反向同步（Roost 改 → DSH 跟上）
+
+之前只做了「DSH 改 → 推给 Roost」。反方向一直缺，而这正是「Roost 侧对了、DSH 侧还是不行」的原因：
+用户在 Roost 面板改了令牌，DSH 不知道，于是转发器用新令牌投递、DSH 用旧令牌校验 —— 一律 403，
+群里彻底没反应，而两边各自看配置都正常。
+
+新增 `GET /api/plugins/trpg-forwarder/r/token`（桥 0.6.4），DSH 三个时机去拉：
+
+| 时机 | 说明 |
+|---|---|
+| 启动后 1.2 秒 | 先跟 Roost 对齐一次 |
+| 每次鉴权前 | fire-and-forget，10 秒缓存 |
+| **每次 `/trpg/event` 到达时** | `await` 一次再校验，这是群里发消息那条路径 |
+
+不一致就以 **Roost 为准**更新本地 `cfg.token` 并写回 config.json ——
+它是「群里实际在用的那个」，DSH 必须跟上，否则所有事件都会被自己的鉴权挡在门外。
+
+`handleRequest` 因此改成 `async`，`createServer` 回调里接住 promise 的 reject ——
+宿主把 `uncaughtException` 当 fatal，一个未处理的 rejection 就能让插件宿主退出。
+
+## 0.16.8：单聊（c2c）支持
+
+桥的中间件原来只认 `group`：
+
+```js
+if (!c.enabled || !msg || msg.kind !== 'group' || isBotMessage(msg)) return next();
+//                                 ↑ 私聊消息在这里被放行给 ai-chat
+```
+
+于是私聊里发 `/开始` 一条都到不了 dsh-trpg，被当成普通聊天回了 —— 就是「私聊指令无效」。
+
+现在 `group` 和 `c2c` 都接：
+
+| 项 | 群聊 | 单聊 |
+|---|---|---|
+| 会话键 `groupId` | 群 openid | **对方 openid** |
+| 事件字段 | `direct: false` | `direct: true` |
+| 回复通道 | `api.sendGroup` | **`api.sendC2C`** |
+
+`sendC2C` 这点必须分开：拿 `sendGroup` 发单聊 openid 会 400「群不存在」，
+而那个错误在群里看不到，只体现在日志里。
+
+### 关于「中文指令无法生效」
+
+日志里已经能看到 `已投递 …（/trpg 开始）` 和对应回复，说明桥的中文白名单（0.6.2）是生效的。
+如果你试的是不带前缀的 `/开始`，那是另一个原因 —— 见下一节。
+
+## 令牌拉取的两个档位（0.16.8 调整）
+
+| 时机 | 行为 |
+|---|---|
+| 启动 / 保存后 | **只提示不一致，不覆盖** |
+| 每次 `/trpg/event` 到达 | **覆盖**（以 Roost 为准） |
+
+启动就覆盖会有副作用：「DSH 刚改成新值、推送失败」时，重启会被 Roost 的旧值悄悄盖回去，
+用户看到「改了又变回去了」。而事件路径不一样 —— 那条请求本身就是 Roost 用它的令牌发来的，
+它能发出来就说明那个值才是活的。
