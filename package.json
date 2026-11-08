@@ -1,0 +1,69 @@
+{
+  "name": "dsh-trpg",
+  "version": "0.13.0",
+  "description": "QQ 群 AI 跑团（CoC 7e）的 DSH 侧大脑：合批、确定性骰子、实时播报。需配合 Roost 插件 trpg-forwarder（两边共享令牌一致）",
+  "type": "module",
+  "main": "src/host.js",
+  "exports": {
+    ".": "./src/host.js",
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "trpg",
+    "coc",
+    "trpg-keeper",
+    "qq"
+  ],
+  "author": "haibiandefengshu",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/haibiandefengshu/dsh-trpg#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haibiandefengshu/dsh-trpg.git"
+  },
+  "bugs": {
+    "url": "https://github.com/haibiandefengshu/dsh-trpg/issues"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.1.0-0",
+    "@deepseek-ai/schemastery": "^3.19.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

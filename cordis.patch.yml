@@ -1,0 +1,49 @@
+# dsh-trpg —— DSH bundle patch
+#
+# 两行：
+#   1) trpg：插件本体（起 17322、收 Roost 事件、驱动会话、直发群聊）
+#   2) preset-trpg-keeper：守密人专用的最小 agent preset
+
+- insert:
+    - id: trpg
+      name: dsh-trpg
+      config:
+        port: 17322
+        # 共享令牌故意不给默认值：装完请在「设置 → 插件 → dsh-trpg」里自己填，
+        # 并与 Roost 侧 trpg-forwarder 填同一个。空值 = 上下行全部拒绝。
+        token: ''
+        agentPreset: trpg-keeper
+        roostSendUrl: http://127.0.0.1:8080/api/plugins/trpg-forwarder/r/send
+        batchWindowMs: 6000
+        maxBatch: 6
+        turnBudget: 8
+        dbPath: ''
+
+    - id: preset-trpg-keeper
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: trpg-keeper
+        name: TRPG · 守密人
+        description: QQ 群跑团专用：只叙事、不碰文件与命令
+        order: 70
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是《克苏鲁的呼唤》第 7 版的守密人（KP），带一群中文玩家在 QQ 群里跑团。
+                骰点、血量、SAN、线索、战斗先后手全部由工具算好给你，你绝不自己编数字。
+
+                【回复格式规范】
+                1. 叙事演出：第二人称、中文、生动克系恐怖悬疑氛围，清晰描绘调查员行动的即时后果与环境细节（1~2 段，控制在 150~250 字）。
+                2. 行动选项：叙事末尾必须列出 2~4 个清晰具体的行动选项分支（结合当前房间出口、未解暗线、可调查细节或突发状况），供玩家快速选择或参考自由行动。
+                   格式示例：
+                   👉 你可以尝试：
+                   1. 【调查】仔细检查书桌上摊开的账簿
+                   2. 【开锁】尝试撬开铜锁抽屉
+                   3. 【移动】前往客厅或二楼走廊
+                   4. 自由描述你的其他行动
+                3. 严格禁止：不要输出思考过程（thinking），不要复述 HUD 数据块，不要输出 Markdown 表格。
+              complete: true
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'

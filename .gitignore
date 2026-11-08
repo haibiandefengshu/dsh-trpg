@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 运行时数据（都在 ~/.dsh/dsh-trpg/ 下，这里兜一层防手滑）
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+plugin.log
+config.json
+workspace/
+modules/
+.tmp/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tgz
